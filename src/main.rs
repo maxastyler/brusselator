@@ -66,6 +66,7 @@ fn run_additive_brusselator(
     steps: usize,
     cores: usize,
     n_paths: usize,
+    skip: Option<usize>,
 ) -> Vec<Vec<(f64, f64)>> {
     let path_count = Arc::new(AtomicUsize::new(0));
     let mut thread_handles = vec![];
@@ -78,7 +79,13 @@ fn run_additive_brusselator(
             if path_count_clone.load(Ordering::SeqCst) < n_paths {
                 path_count_clone.fetch_add(1, Ordering::SeqCst);
                 tx_clone
-                    .send(additive_brusselator(a, b, x, y, dt, &g_clone, steps))
+                    .send(
+                        additive_brusselator(a, b, x, y, dt, &g_clone, steps)
+                            .iter()
+                            .step_by(skip.unwrap_or(1))
+                            .map(|&x| x)
+                            .collect(),
+                    )
                     .unwrap();
             } else {
                 break;
@@ -99,7 +106,13 @@ fn run_additive_brusselator(
         if path_count_clone.load(Ordering::SeqCst) < n_paths {
             path_count_clone.fetch_add(1, Ordering::SeqCst);
             tx_clone
-                .send(additive_brusselator(a, b, x, y, dt, &g, steps))
+                .send(
+                    additive_brusselator(a, b, x, y, dt, &g, steps)
+                        .iter()
+                        .step_by(skip.unwrap_or(1))
+                        .map(|&x| x)
+                        .collect(),
+                )
                 .unwrap();
             bar.set_position(path_count_clone.load(Ordering::SeqCst) as u64);
         } else {
@@ -201,6 +214,12 @@ fn main() -> std::io::Result<()> {
                 .help(&format!("Don't write out to a file",)),
         )
         .arg(
+            Arg::with_name("skip_n")
+                .short("k")
+                .help(&format!("Only save every nth entry"))
+                .takes_value(true),
+        )
+        .arg(
             Arg::with_name("estimate_size")
                 .short("e")
                 .help(&format!("Give an upper bound for the file size, then quit")),
@@ -220,24 +239,28 @@ fn main() -> std::io::Result<()> {
     let n_step = value_t!(matches, "steps", usize).unwrap_or(STEPS_DEFAULT);
     let cores = value_t!(matches, "num_cores", usize).unwrap_or(CORE_NUM_DEFAULT);
     let paths = value_t!(matches, "num_paths", usize).unwrap_or(PATH_NUM_DEFAULT);
+    let skip: Option<usize> = value_t!(matches, "skip_n", usize).ok();
     let path_name = format!(
         "a_{}_b_{}_x_{}_y_{}_g_{}_{}_{}_{}_dt_{}.brus",
         a, b, x, y, g_vec[0], g_vec[1], g_vec[2], g_vec[3], step
     );
     let output_name = matches.value_of("OUTPUT").unwrap_or(&path_name);
     if matches.is_present("estimate_size") {
-        println!("The estimated size of the file is: {}MB", 16.0*(paths as f64)*(n_step as f64)/1024f64.powi(2))
+        println!(
+            "The estimated size of the file is: {}MB",
+            16.0 * (paths as f64) * (n_step as f64) / (1024f64.powi(2) * skip.unwrap_or(1) as f64)
+        )
     } else {
         if !matches.is_present("no_write") {
             let mut file = File::create(output_name)?;
             serde_pickle::ser::to_writer(
                 &mut file,
-                &run_additive_brusselator(a, b, x, y, step, g_vec, n_step, cores, paths),
+                &run_additive_brusselator(a, b, x, y, step, g_vec, n_step, cores, paths, skip),
                 true,
             )
             .unwrap();
         } else {
-            let _ = run_additive_brusselator(a, b, x, y, step, g_vec, n_step, cores, paths);
+            let _ = run_additive_brusselator(a, b, x, y, step, g_vec, n_step, cores, paths, skip);
         }
     }
     Ok(())
