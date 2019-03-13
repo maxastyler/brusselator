@@ -195,6 +195,11 @@ fn main() -> std::io::Result<()> {
                 ))
                 .takes_value(true),
         )
+        .arg(
+            Arg::with_name("no_write")
+                .short("w")
+                .help(&format!("Don't write out to a file",)),
+        )
         .get_matches();
     let g_vec = values_t!(matches.values_of("noise_coefficient"), f64).unwrap_or(vec![
         G_DEFAULT.0,
@@ -215,11 +220,16 @@ fn main() -> std::io::Result<()> {
         a, b, x, y, g_vec[0], g_vec[1], g_vec[2], g_vec[3], step
     );
     let output_name = matches.value_of("OUTPUT").unwrap_or(&path_name);
-    let mut file = File::create(output_name)?;
-    serde_pickle::ser::to_writer(
-        &mut file,
-        &run_additive_brusselator(a, b, x, y, step, g_vec, n_step, cores, paths),
-        true,
-    ).unwrap();
+    if !matches.is_present("no_write") {
+        let mut file = File::create(output_name)?;
+        serde_pickle::ser::to_writer(
+            &mut file,
+            &run_additive_brusselator(a, b, x, y, step, g_vec, n_step, cores, paths),
+            true,
+        )
+        .unwrap();
+    } else {
+        let _ = run_additive_brusselator(a, b, x, y, step, g_vec, n_step, cores, paths);
+    }
     Ok(())
 }
