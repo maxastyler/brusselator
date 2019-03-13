@@ -23,10 +23,10 @@ const CORE_NUM_DEFAULT: usize = 1;
 const START_X_DEFAULT: f64 = 0.0;
 const START_Y_DEFAULT: f64 = 0.0;
 
-const A_DEFAULT: f64 = 0.0;
-const B_DEFAULT: f64 = 0.0;
+const A_DEFAULT: f64 = 1.0;
+const B_DEFAULT: f64 = 2.0;
 
-const G_DEFAULT: (f64, f64, f64, f64) = (1.0, 0.0, 0.0, 1.0);
+const G_DEFAULT: (f64, f64, f64, f64) = (0.0, 0.0, 0.0, 0.0);
 
 const STEP_SIZE: f64 = 0.001;
 const STEPS_DEFAULT: usize = 1000;
