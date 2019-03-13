@@ -5,3 +5,8 @@ authors = ["Max Tyler <maxastyler@gmail.com>"]
 edition = "2018"
 
 [dependencies]
+rand = "0.6"
+serde-pickle = "0.4"
+serde = "1.0"
+indicatif = "0.11"
+clap = "2.32"
