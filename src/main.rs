@@ -200,6 +200,11 @@ fn main() -> std::io::Result<()> {
                 .short("w")
                 .help(&format!("Don't write out to a file",)),
         )
+        .arg(
+            Arg::with_name("estimate_size")
+                .short("e")
+                .help(&format!("Give an upper bound for the file size, then quit")),
+        )
         .get_matches();
     let g_vec = values_t!(matches.values_of("noise_coefficient"), f64).unwrap_or(vec![
         G_DEFAULT.0,
@@ -220,16 +225,20 @@ fn main() -> std::io::Result<()> {
         a, b, x, y, g_vec[0], g_vec[1], g_vec[2], g_vec[3], step
     );
     let output_name = matches.value_of("OUTPUT").unwrap_or(&path_name);
-    if !matches.is_present("no_write") {
-        let mut file = File::create(output_name)?;
-        serde_pickle::ser::to_writer(
-            &mut file,
-            &run_additive_brusselator(a, b, x, y, step, g_vec, n_step, cores, paths),
-            true,
-        )
-        .unwrap();
+    if matches.is_present("estimate_size") {
+        println!("The estimated size of the file is: {}MB", 16.0*(paths as f64)*(n_step as f64)/1024f64.powi(2))
     } else {
-        let _ = run_additive_brusselator(a, b, x, y, step, g_vec, n_step, cores, paths);
+        if !matches.is_present("no_write") {
+            let mut file = File::create(output_name)?;
+            serde_pickle::ser::to_writer(
+                &mut file,
+                &run_additive_brusselator(a, b, x, y, step, g_vec, n_step, cores, paths),
+                true,
+            )
+            .unwrap();
+        } else {
+            let _ = run_additive_brusselator(a, b, x, y, step, g_vec, n_step, cores, paths);
+        }
     }
     Ok(())
 }
