@@ -5,9 +5,15 @@ extern crate rand;
 extern crate serde;
 extern crate serde_pickle;
 
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::{mpsc, Arc};
+use std::thread;
 
+use indicatif::{ProgressBar, ProgressStyle};
 use rand::distributions::{Distribution, StandardNormal};
 use rand::prelude::*;
+
+use std::fs::File;
 
 use clap::{App, Arg, SubCommand};
 
@@ -50,8 +56,61 @@ pub fn additive_brusselator(
     positions
 }
 
-fn run_additive_brusselator(a:f64, b:f64, x:f64, y:f64, dt:f64, g: &Vec<f64>, steps: usize, cores: usize, n_paths: usize) -> Vec<Vec<(f64, f64)>> {
-    vec![]
+fn run_additive_brusselator(
+    a: f64,
+    b: f64,
+    x: f64,
+    y: f64,
+    dt: f64,
+    g: Vec<f64>,
+    steps: usize,
+    cores: usize,
+    n_paths: usize,
+) -> Vec<Vec<(f64, f64)>> {
+    let path_count = Arc::new(AtomicUsize::new(0));
+    let mut thread_handles = vec![];
+    let (tx, rx) = mpsc::channel();
+    for _ in 0..cores - 1 {
+        let path_count_clone = path_count.clone();
+        let tx_clone = tx.clone();
+        let g_clone = g.clone();
+        thread_handles.push(thread::spawn(move || loop {
+            if path_count_clone.load(Ordering::SeqCst) < n_paths {
+                path_count_clone.fetch_add(1, Ordering::SeqCst);
+                tx_clone
+                    .send(additive_brusselator(a, b, x, y, dt, &g_clone, steps))
+                    .unwrap();
+            } else {
+                break;
+            }
+        }))
+    }
+    let bar = ProgressBar::new(n_paths as u64);
+    bar.set_style(
+        ProgressStyle::default_bar()
+            .template(
+                "[{elapsed_precise}][{eta_precise}] {bar:40.cyan/blue} {pos:>7}/{len:7} {msg}",
+            )
+            .progress_chars("##-"),
+    );
+    let path_count_clone = path_count.clone();
+    let tx_clone = tx.clone();
+    loop {
+        if path_count_clone.load(Ordering::SeqCst) < n_paths {
+            path_count_clone.fetch_add(1, Ordering::SeqCst);
+            tx_clone
+                .send(additive_brusselator(a, b, x, y, dt, &g, steps))
+                .unwrap();
+            bar.set_position(path_count_clone.load(Ordering::SeqCst) as u64);
+        } else {
+            break;
+        }
+    }
+    bar.finish();
+    for handle in thread_handles {
+        handle.join().unwrap();
+    }
+    rx.try_iter().collect()
 }
 
 fn main() -> std::io::Result<()> {
@@ -61,7 +120,7 @@ fn main() -> std::io::Result<()> {
             Arg::with_name("OUTPUT")
                 .short("o")
                 .help("Sets the file to save the photon paths to")
-                .takes_value(true)
+                .takes_value(true),
         )
         .arg(
             Arg::with_name("num_paths")
@@ -88,34 +147,28 @@ fn main() -> std::io::Result<()> {
                     "The starting x point. Default is {}",
                     START_X_DEFAULT,
                 ))
-                .takes_value(true)
+                .takes_value(true),
         )
         .arg(
             Arg::with_name("start_y")
                 .short("y")
                 .help(&format!(
                     "The starting y point. Default is {}",
-                        START_Y_DEFAULT,
+                    START_Y_DEFAULT,
                 ))
-                .takes_value(true)
+                .takes_value(true),
         )
         .arg(
             Arg::with_name("a")
                 .short("a")
-                .help(&format!(
-                    "The value for a. Default is {}",
-                    A_DEFAULT,
-                ))
-                .takes_value(true)
+                .help(&format!("The value for a. Default is {}", A_DEFAULT,))
+                .takes_value(true),
         )
         .arg(
             Arg::with_name("b")
                 .short("b")
-                .help(&format!(
-                    "The value for b. Default is {}",
-                    B_DEFAULT,
-                ))
-                .takes_value(true)
+                .help(&format!("The value for b. Default is {}", B_DEFAULT,))
+                .takes_value(true),
         )
         .arg(
             Arg::with_name("noise_coefficient")
@@ -130,11 +183,8 @@ fn main() -> std::io::Result<()> {
         .arg(
             Arg::with_name("step_size")
                 .short("d")
-                .help(&format!(
-                    "The timestep size, dt. Default is {}",
-                    STEP_SIZE
-                ))
-                .takes_value(true)
+                .help(&format!("The timestep size, dt. Default is {}", STEP_SIZE))
+                .takes_value(true),
         )
         .arg(
             Arg::with_name("steps")
@@ -143,7 +193,7 @@ fn main() -> std::io::Result<()> {
                     "The number of steps to take on each path. Default is {}",
                     STEPS_DEFAULT,
                 ))
-                .takes_value(true)
+                .takes_value(true),
         )
         .get_matches();
     let g_vec = values_t!(matches.values_of("noise_coefficient"), f64).unwrap_or(vec![
@@ -152,16 +202,24 @@ fn main() -> std::io::Result<()> {
         G_DEFAULT.2,
         G_DEFAULT.3,
     ]);
-    run_additive_brusselator(
-        value_t!(matches, "a", f64).unwrap_or(A_DEFAULT),
-        value_t!(matches, "b", f64).unwrap_or(B_DEFAULT),
-        value_t!(matches, "start_x", f64).unwrap_or(START_X_DEFAULT),
-        value_t!(matches, "start_y", f64).unwrap_or(START_Y_DEFAULT),
-        value_t!(matches, "step_size", f64).unwrap_or(STEP_SIZE),
-        &g_vec,
-        value_t!(matches, "steps", usize).unwrap_or(STEPS_DEFAULT),
-        value_t!(matches, "num_cores", usize).unwrap_or(CORE_NUM_DEFAULT),
-        value_t!(matches, "num_paths", usize).unwrap_or(PATH_NUM_DEFAULT),
-        );
+    let a = value_t!(matches, "a", f64).unwrap_or(A_DEFAULT);
+    let b = value_t!(matches, "b", f64).unwrap_or(B_DEFAULT);
+    let x = value_t!(matches, "start_x", f64).unwrap_or(START_X_DEFAULT);
+    let y = value_t!(matches, "start_y", f64).unwrap_or(START_Y_DEFAULT);
+    let step = value_t!(matches, "step_size", f64).unwrap_or(STEP_SIZE);
+    let n_step = value_t!(matches, "steps", usize).unwrap_or(STEPS_DEFAULT);
+    let cores = value_t!(matches, "num_cores", usize).unwrap_or(CORE_NUM_DEFAULT);
+    let paths = value_t!(matches, "num_paths", usize).unwrap_or(PATH_NUM_DEFAULT);
+    let path_name = format!(
+        "a_{}_b_{}_x_{}_y_{}_g_{}_{}_{}_{}_dt_{}.brus",
+        a, b, x, y, g_vec[0], g_vec[1], g_vec[2], g_vec[3], step
+    );
+    let output_name = matches.value_of("OUTPUT").unwrap_or(&path_name);
+    let mut file = File::create(output_name)?;
+    serde_pickle::ser::to_writer(
+        &mut file,
+        &run_additive_brusselator(a, b, x, y, step, g_vec, n_step, cores, paths),
+        true,
+    ).unwrap();
     Ok(())
 }
