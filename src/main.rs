@@ -66,7 +66,8 @@ fn run_additive_brusselator(
     steps: usize,
     cores: usize,
     n_paths: usize,
-    skip: Option<usize>,
+    value_step: Option<usize>,
+    skip: Option<usize>
 ) -> Vec<Vec<(f64, f64)>> {
     let path_count = Arc::new(AtomicUsize::new(0));
     let mut thread_handles = vec![];
@@ -82,7 +83,8 @@ fn run_additive_brusselator(
                     .send(
                         additive_brusselator(a, b, x, y, dt, &g_clone, steps)
                             .iter()
-                            .step_by(skip.unwrap_or(1))
+                            .skip(skip.unwrap_or(0))
+                            .step_by(value_step.unwrap_or(1))
                             .map(|&x| x)
                             .collect(),
                     )
@@ -109,7 +111,8 @@ fn run_additive_brusselator(
                 .send(
                     additive_brusselator(a, b, x, y, dt, &g, steps)
                         .iter()
-                        .step_by(skip.unwrap_or(1))
+                        .skip(skip.unwrap_or(0))
+                        .step_by(value_step.unwrap_or(1))
                         .map(|&x| x)
                         .collect(),
                 )
@@ -211,18 +214,24 @@ fn main() -> std::io::Result<()> {
         .arg(
             Arg::with_name("no_write")
                 .short("w")
-                .help(&format!("Don't write out to a file",)),
+                .help("Don't write out to a file"),
         )
         .arg(
-            Arg::with_name("skip_n")
+            Arg::with_name("nth")
                 .short("k")
-                .help(&format!("Only save every nth entry"))
+                .help("Only save every nth entry")
+                .takes_value(true),
+        )
+        .arg(
+            Arg::with_name("skip")
+                .short("j")
+                .help("Skip the first n values")
                 .takes_value(true),
         )
         .arg(
             Arg::with_name("estimate_size")
                 .short("e")
-                .help(&format!("Give an upper bound for the file size, then quit")),
+                .help("Give a rough file size, then quit"),
         )
         .get_matches();
     let g_vec = values_t!(matches.values_of("noise_coefficient"), f64).unwrap_or(vec![
@@ -239,7 +248,8 @@ fn main() -> std::io::Result<()> {
     let n_step = value_t!(matches, "steps", usize).unwrap_or(STEPS_DEFAULT);
     let cores = value_t!(matches, "num_cores", usize).unwrap_or(CORE_NUM_DEFAULT);
     let paths = value_t!(matches, "num_paths", usize).unwrap_or(PATH_NUM_DEFAULT);
-    let skip: Option<usize> = value_t!(matches, "skip_n", usize).ok();
+    let value_step: Option<usize> = value_t!(matches, "nth", usize).ok();
+    let skip: Option<usize> = value_t!(matches, "skip", usize).ok();
     let path_name = format!(
         "a_{}_b_{}_x_{}_y_{}_g_{}_{}_{}_{}_dt_{}.brus",
         a, b, x, y, g_vec[0], g_vec[1], g_vec[2], g_vec[3], step
@@ -248,19 +258,19 @@ fn main() -> std::io::Result<()> {
     if matches.is_present("estimate_size") {
         println!(
             "The estimated size of the file is: {}MB",
-            16.0 * (paths as f64) * (n_step as f64) / (1024f64.powi(2) * skip.unwrap_or(1) as f64)
+            16.0 * (paths as f64) * ((n_step-skip.unwrap_or(0)) as f64) / (1024f64.powi(2) * value_step.unwrap_or(1) as f64)
         )
     } else {
         if !matches.is_present("no_write") {
             let mut file = File::create(output_name)?;
             serde_pickle::ser::to_writer(
                 &mut file,
-                &run_additive_brusselator(a, b, x, y, step, g_vec, n_step, cores, paths, skip),
+                &run_additive_brusselator(a, b, x, y, step, g_vec, n_step, cores, paths, value_step, skip),
                 true,
             )
             .unwrap();
         } else {
-            let _ = run_additive_brusselator(a, b, x, y, step, g_vec, n_step, cores, paths, skip);
+            let _ = run_additive_brusselator(a, b, x, y, step, g_vec, n_step, cores, paths, value_step, skip);
         }
     }
     Ok(())
