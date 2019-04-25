@@ -56,6 +56,31 @@ pub fn additive_brusselator(
     positions
 }
 
+pub fn multiplicative_brusselator(
+    a: f64,
+    b: f64,
+    start_x: f64,
+    start_y: f64,
+    dt: f64,
+    g: &Vec<f64>,
+    steps: usize,
+) -> Vec<(f64, f64)> {
+    let mut positions = Vec::with_capacity(steps);
+    let mut rng = thread_rng();
+    let sq_dt = dt.sqrt();
+    positions.push((start_x, start_y));
+    for _ in 0..steps {
+        let (x, y) = positions.last().unwrap();
+        let w0 = StandardNormal.sample(&mut rng);
+        let w1 = StandardNormal.sample(&mut rng);
+        positions.push((
+            x + (1.0 - (b + 1.0) * x + a * x.powi(2) * y) * dt + (g[0] * w0 + g[1] * w1) * sq_dt,
+            y + (b * x - a * x.powi(2) * y) * dt + (g[2] * w0 + g[3] * w1) * sq_dt,
+        ))
+    }
+    positions
+}
+
 fn run_additive_brusselator(
     a: f64,
     b: f64,
